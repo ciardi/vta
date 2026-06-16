@@ -1,0 +1,11 @@
+# VTA dependencies
+# Install with:  python -m pip install -r requirements.txt
+# Floors are conservative; the versions in parentheses are what VTA was tested against.
+
+PySide6>=6.7        # Qt GUI toolkit                              (tested 6.11.1)
+pyqtgraph>=0.13     # fast image display + histogram/LUT widget   (tested 0.14.0)
+astropy>=6.0        # FITS I/O, WCS, sigma-clip stats, zscale     (tested 7.2.0)
+numpy>=1.24         # array math (core)                           (tested 2.4.4)
+scipy>=1.10         # spline FWHM, bilinear vector sampling       (tested 1.17.1)
+photutils>=1.10     # aperture photometry                         (tested 3.0.0)
+matplotlib>=3.7     # radial-profile / cut / histogram plots      (tested 3.10.8)
