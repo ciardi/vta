@@ -76,19 +76,104 @@ result can be saved as 1-D FITS or text.
 
 ## Installation
 
-VTA needs Python 3.10+ and the packages in `requirements.txt`.
+VTA needs **Python 3.10+** and the packages in `requirements.txt`
+(PySide6, pyqtgraph, astropy, numpy, scipy, photutils, matplotlib). All of
+them ship as pre-built wheels on every major platform, so no compiler is
+required. VTA itself is a single pure-Python file and is OS-agnostic — the
+only differences below are how you get Python and the Qt system libraries.
+
+First get the code (any platform):
 
 ```bash
 git clone https://github.com/ciardi/vta.git
 cd vta
-python -m pip install -r requirements.txt
 ```
 
-On Linux you may also need the Qt xcb system libraries, e.g. on
-Debian/Ubuntu:
+A virtual environment is recommended but optional. The per-platform notes
+below cover the Python install and any extra system libraries.
+
+### macOS (recommended: Homebrew Python)
+
+```bash
+brew install python                       # if you don't already have it
+python3 -m pip install -r requirements.txt
+python3 vta.py image.fits
+```
+
+Qt's macOS (Cocoa) plugin is bundled in the PySide6 wheel, so there are no
+extra system libraries to install. Works on both Apple-silicon and Intel
+Macs. The system Python that ships with macOS also works, but a Homebrew
+(or python.org) Python is cleaner and easier to keep current.
+
+### macOS via a Unix/X11 setup (MacPorts, fink, or forcing X11)
+
+If you are running a Unix-style stack on macOS (e.g. MacPorts Python) the
+install is the same:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 vta.py image.fits
+```
+
+VTA uses Qt's native Cocoa backend by default, which is what you want — you
+do **not** need XQuartz. If you have a reason to force X11 (e.g. remote
+display through an X server), install XQuartz and set
+`QT_QPA_PLATFORM=xcb`; otherwise leave it unset and Cocoa is used
+automatically.
+
+### Linux (native)
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+On a minimal/headless Linux you may also need the Qt xcb runtime
+libraries. On Debian/Ubuntu:
 
 ```bash
 sudo apt install libxcb-cursor0
+```
+
+(Other distributions: install the equivalent `xcb` / `libxcb-cursor`
+package.) Then:
+
+```bash
+python3 vta.py image.fits
+```
+
+### WSL2 (Windows Subsystem for Linux)
+
+Treat WSL2 like native Linux. With a recent Windows 11 + WSL2 (WSLg
+provides the display automatically), install the same xcb libraries and
+run it:
+
+```bash
+sudo apt install libxcb-cursor0
+python3 -m pip install -r requirements.txt
+python3 vta.py image.fits
+```
+
+VTA automatically selects the `xcb` Qt platform under WSL2, so no manual
+`QT_QPA_PLATFORM` setting is needed. (Note: a WSL2 Python environment is
+separate from any native-Windows Python — install the requirements in
+whichever one you run VTA from.)
+
+### Windows (native Python)
+
+Install Python 3.10+ from [python.org](https://www.python.org/downloads/)
+or the Microsoft Store, then from PowerShell or Command Prompt:
+
+```bat
+python -m pip install -r requirements.txt
+python vta.py image.fits
+```
+
+Qt's Windows plugin is self-contained in the PySide6 wheel, so **none** of
+the Linux `xcb` steps apply. A native window opens directly. On a high-DPI
+(4K) display, if scaling looks off you can set:
+
+```bat
+set QT_ENABLE_HIGHDPI_SCALING=1
 ```
 
 ## Usage
