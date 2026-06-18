@@ -3580,7 +3580,7 @@ def build_gui():
             ax.axvline(p["outersky"] * sc, color="#9467bd", ls="--", lw=1.4)
             ax.set_xlabel(f"Radius ({unit})", color="black", fontsize=10)
             ax.set_ylabel("Counts", color="black", fontsize=10)
-            ax.set_title(f"FWHM = {rp['fwhm'] * sc:.2f} {unit}"
+            ax.set_title(f"FWHM = {rp['fwhm'] * sc:.3g} {unit}"
                          if rp["fwhm"] > 0 else "FWHM: n/a",
                          color="black", fontsize=11)
             ax.tick_params(colors="black", labelsize=9)
