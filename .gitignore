@@ -1,26 +1,12 @@
-# Python
 __pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
+*.pyc
+*.pyo
 .venv/
 venv/
 env/
-
-# Jupyter / IPython
-.ipynb_checkpoints/
-
-# OS / editor cruft
 .DS_Store
-Thumbs.db
-*.swp
-.vscode/
-.idea/
-
-# VTA output files (don't commit users' data/exports)
+*.fits
 vtaphot.csv
 vtasep.csv
-*.fits
-!docs/*.fits
+.idea/
+.vscode/

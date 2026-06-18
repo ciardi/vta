@@ -1239,6 +1239,9 @@ def build_gui():
             self._blink = [None, None, None]   # 3 saved display states
             self._blink_timer = None
             self._blink_idx = 0
+            # what is currently on screen: None = live (loaded) image,
+            # 0/1/2 = the corresponding blink buffer
+            self._current_buffer = None
             self._rgb_mode = False
             self._rgb_channels = None
             self._cube = None
@@ -1359,12 +1362,18 @@ def build_gui():
 
             # status readouts
             self.status = self.statusBar()
+            self.buffer_label = QtWidgets.QLabel("")
             self.xy_label = QtWidgets.QLabel("x= --  y= --  value= --")
             self.wcs_label = QtWidgets.QLabel("")
+            self.buffer_label.setStyleSheet(
+                "font-family: monospace; font-weight: bold;")
             self.xy_label.setStyleSheet("font-family: monospace;")
             self.wcs_label.setStyleSheet("font-family: monospace;")
+            # buffer indicator sits at the far left, before x/y/value
+            self.status.addWidget(self.buffer_label)
             self.status.addWidget(self.xy_label)
             self.status.addPermanentWidget(self.wcs_label)
+            self._update_buffer_label()
             # coordinate-system selector
             self._coordsys = "J2000"
             self.coordsys_combo = QtWidgets.QComboBox()
@@ -1602,13 +1611,30 @@ def build_gui():
                 self.status.showMessage(f"Blink buffer {k + 1} is empty.", 3000)
                 return
             self._restore_state(self._blink[k], keep_view=True)
+            self._current_buffer = k
+            self._update_buffer_label()
             self.status.showMessage(f"Blink buffer {k + 1}", 1500)
+
+        def _update_buffer_label(self):
+            """Keep the persistent status-bar buffer indicator (far left) in
+            sync with what is on screen: the live image, a blink buffer, or
+            an RGB composite."""
+            if getattr(self, "buffer_label", None) is None:
+                return
+            if getattr(self, "_rgb_mode", False):
+                self.buffer_label.setText("buffer: RGB")
+            elif self._current_buffer is None:
+                self.buffer_label.setText("buffer: live")
+            else:
+                self.buffer_label.setText(f"buffer: {self._current_buffer + 1}")
 
         def _clear_blink(self):
             """Empty all three blink buffers and stop auto-blink."""
             self._blink = [None, None, None]
             if self._blink_timer is not None:
                 self._autoblink_action.setChecked(False)
+            self._current_buffer = None
+            self._update_buffer_label()
             self.status.showMessage("Cleared blink buffers.", 3000)
 
         def _toggle_autoblink(self, on):
@@ -1725,6 +1751,7 @@ def build_gui():
             self._rgb_mode = True
             self._rgb_channels = channels
             self.img_item.setImage(rgb, autoLevels=False)
+            self._update_buffer_label()
             self.status.showMessage(
                 "RGB composite shown (stretch/colormap/photometry disabled; "
                 "use Blink/RGB \u2192 Exit RGB to return).", 6000)
@@ -1736,6 +1763,7 @@ def build_gui():
             self._rgb_mode = False
             self._rgb_channels = None
             self.refresh(reset_view=False)
+            self._update_buffer_label()
 
         # ---- data cube ----------------------------------------------
         def _build_cube_dock(self):
@@ -2622,6 +2650,9 @@ def build_gui():
             self._capture_original()
             self._update_radial_unit_enabled()
             self._redraw_annotations()
+            # a freshly loaded image is the live image, not a blink buffer
+            self._current_buffer = None
+            self._update_buffer_label()
 
         def _capture_original(self):
             """Snapshot the freshly-loaded image so Rotate -> Reset can
@@ -3078,13 +3109,22 @@ def build_gui():
             urow = QtWidgets.QHBoxLayout()
             urow.addWidget(self.show_ap_chk)
             urow.addStretch(1)
-            urow.addWidget(QtWidgets.QLabel("radial units"))
+            # mirror the vector-plot control: a checkbox toggles the radial
+            # axis from pixels to angular units, with a unit pulldown that is
+            # live only while the box is checked
+            self.radial_ang_chk = QtWidgets.QCheckBox("radius in angular units")
+            self.radial_ang_chk.setToolTip(
+                "Show the radial-profile x axis and FWHM in angular units "
+                "(needs a celestial WCS); unchecked = pixels")
+            self.radial_ang_chk.toggled.connect(self._on_radial_unit)
             self.radial_unit = QtWidgets.QComboBox()
-            self.radial_unit.addItems(["pixels", "arcsec"])
+            self.radial_unit.addItems(["arcsec", "arcmin", "degree"])
+            self.radial_unit.setCurrentText("arcsec")
             self.radial_unit.setToolTip(
-                "Units for the radial-profile x axis and the FWHM "
-                "(arcsec needs a celestial WCS)")
+                "Angular unit for the radial-profile x axis and the FWHM")
+            self.radial_unit.setEnabled(False)
             self.radial_unit.currentIndexChanged.connect(self._on_radial_unit)
+            urow.addWidget(self.radial_ang_chk)
             urow.addWidget(self.radial_unit)
             pv.addLayout(urow)
 
@@ -3472,44 +3512,44 @@ def build_gui():
             self._update_separations()
 
         def _radial_scale(self):
-            """Return (unit_label, multiplier) for radial-display units.
-            'arcsec' uses the WCS pixel scale; falls back to pixels (and
-            resets the selector) when there is no celestial WCS."""
-            if (getattr(self, "radial_unit", None) is not None
-                    and self.radial_unit.currentText() == "arcsec"):
+            """Return (unit_label, multiplier) for radial-display units. The
+            angular checkbox switches the radial axis (and FWHM) from pixels
+            to the unit chosen in the combo, using the WCS pixel scale; falls
+            back to pixels when unchecked or without a celestial WCS."""
+            if (getattr(self, "radial_ang_chk", None) is not None
+                    and self.radial_ang_chk.isChecked()):
                 scale = self._pixscale_arcsec()
                 if scale:
-                    return "arcsec", scale
+                    unit = self.radial_unit.currentText()
+                    factor = scale / {"arcsec": 1.0, "arcmin": 60.0,
+                                      "degree": 3600.0}[unit]
+                    return unit, factor
             return "pix", 1.0
 
         def _update_radial_unit_enabled(self):
-            """Enable the radial-units selector only when a celestial WCS is
-            present; otherwise force pixels and disable it."""
-            if getattr(self, "radial_unit", None) is None:
+            """Enable the angular radial controls only when a celestial WCS is
+            present; otherwise uncheck (force pixels) and disable them."""
+            if getattr(self, "radial_ang_chk", None) is None:
                 return
             has_wcs = bool(self._pixscale_arcsec())
-            self.radial_unit.blockSignals(True)
+            self.radial_ang_chk.blockSignals(True)
+            self.radial_ang_chk.setEnabled(has_wcs)
             if not has_wcs:
-                self.radial_unit.setCurrentText("pixels")
-            self.radial_unit.blockSignals(False)
-            self.radial_unit.setEnabled(has_wcs)
-            self.radial_unit.setToolTip(
-                "Units for the radial-profile x axis and the FWHM"
-                if has_wcs else "No celestial WCS \u2014 radial units are "
-                "in pixels")
+                self.radial_ang_chk.setChecked(False)
+            self.radial_ang_chk.blockSignals(False)
+            self.radial_ang_chk.setToolTip(
+                "Show the radial-profile x axis and FWHM in angular units; "
+                "unchecked = pixels" if has_wcs else
+                "No celestial WCS \u2014 radial units are in pixels")
+            self.radial_unit.setEnabled(has_wcs
+                                        and self.radial_ang_chk.isChecked())
 
         def _on_radial_unit(self, *_):
-            """Radial-units selector changed: warn + revert if arcsec is
-            chosen without a WCS, else re-render the last measurement."""
-            if (self.radial_unit.currentText() == "arcsec"
-                    and not self._pixscale_arcsec()):
-                self.status.showMessage(
-                    "No celestial WCS \u2014 radial units stay in pixels.",
-                    4000)
-                self.radial_unit.blockSignals(True)
-                self.radial_unit.setCurrentText("pixels")
-                self.radial_unit.blockSignals(False)
-                return
+            """Angular checkbox / unit changed: keep the combo live only while
+            the box is checked, then re-render the last measurement."""
+            if getattr(self, "radial_ang_chk", None) is not None:
+                self.radial_unit.setEnabled(self.radial_ang_chk.isEnabled()
+                                            and self.radial_ang_chk.isChecked())
             if getattr(self, "_last_click", None) is not None:
                 self.update_analysis(*self._last_click)
 
