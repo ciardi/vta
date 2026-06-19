@@ -909,14 +909,15 @@ cut; x axis can be angular (arcsec/arcmin/degree) when a WCS pixel scale
 exists</td></tr>
 <tr><td><b>row / col</b></td><td>click to plot that row / column; the
 spinbox in the plot window fine-tunes</td></tr>
-<tr><td><b>spectrum</b></td><td>click on a spectral trace to extract it
-(see below)</td></tr>
+<tr><td><b>spectrum</b></td><td>click on a spectral trace to extract it,
+or press <b>x</b> at the cursor (see below)</td></tr>
 </table>
 
 <h3>Keyboard</h3>
 <table border="0" cellpadding="3">
 <tr><td><b>arrows</b></td><td>move the cursor 1 px (Shift = 10 px)</td></tr>
 <tr><td><b>p</b></td><td>photometry at the cursor</td></tr>
+<tr><td><b>x</b></td><td>extract a spectrum at the cursor</td></tr>
 <tr><td><b>r</b> / <b>c</b></td><td>plot the row / column through the
 cursor (works from the plot windows too)</td></tr>
 <tr><td><b>1 2 3</b></td><td>show blink buffer 1/2/3 (when filled)</td></tr>
@@ -931,17 +932,24 @@ rainbow, viridis, inferno, magma, cividis, turbo, with <b>invert</b>;
 all panels (image, magnifier, statistics subimage) stay in sync.
 <b>Center</b> refits the frame.</p>
 
-<h3>Coordinate readout</h3>
-<p>The status-bar selector (bottom right) switches the readout between
-J2000 (sexagesimal), J2000 degrees, B1950, Galactic, Ecliptic, and
-Pixel. All but Pixel need a celestial WCS in the header.</p>
+<h3>Status bar</h3>
+<p>Far left, a <b>buffer indicator</b> shows what is on screen &mdash;
+<i>buffer: live</i> for the loaded image, <i>buffer: 1/2/3</i> when a blink
+buffer is displayed, or <i>buffer: RGB</i> for a composite. Next to it is
+the cursor x / y / pixel-value readout. The selector at the bottom
+<i>right</i> switches the coordinate readout between J2000 (sexagesimal),
+J2000 degrees, B1950, Galactic, Ecliptic, and Pixel; all but Pixel need a
+celestial WCS in the header.</p>
 
 <h3>Analysis</h3>
 <p><b>Photometry</b> (imexam click or <b>p</b>): ATV/DAOPHOT-style
 aperture photometry with centroiding; set aperture/sky radii, gain, read
 noise, zero point, exposure time; counts or magnitudes; sky from DAOPHOT
 mode, median, or none. The radial profile shows binned points, a spline,
-the FWHM, and the aperture/sky radii; save it with the button below.
+the FWHM, and the aperture/sky radii; its x axis (and the FWHM) read in
+pixels, or in arcsec/arcmin/degree when the <b>radius in angular units</b>
+checkbox is ticked (needs a celestial WCS). Save the plot with the button
+below.
 <b>Statistics</b> tab: box statistics, a square subimage in the current
 display settings, and the pixel histogram.</p>
 
@@ -967,10 +975,13 @@ or keys 1/2/3 (zoom/pan is kept so frames stay registered), or
 <b>Auto-blink</b> through the filled buffers. <b>Make RGB&hellip;</b>
 assigns R/G/B from the buffers (zscale or min/max channel scaling);
 in RGB mode the readout shows R/G/B values and photometry/stretch are
-disabled; <b>Exit RGB</b> returns.</p>
+disabled; <b>Exit RGB</b> returns. The status-bar buffer indicator
+(bottom left) tracks whether you are viewing the live image, a numbered
+buffer, or the RGB composite.</p>
 
 <h3>Spectral extraction</h3>
-<p>Pick <b>spectrum</b> mode and click on a spectral trace. VTA peaks
+<p>Pick <b>spectrum</b> mode and click on a spectral trace (or press
+<b>x</b> at the cursor). VTA peaks
 up at the click, traces the order by iterative centroiding every
 <i>trace step</i> pixels (outward in both directions), fits a polynomial,
 and extracts with partial-pixel aperture summation and optional
@@ -2497,6 +2508,9 @@ def build_gui():
             # photometry-at-cursor keyboard shortcut
             sc = QtGui.QShortcut(QtGui.QKeySequence("p"), self)
             sc.activated.connect(self.photometry_at_cursor)
+            # spectral-extraction-at-cursor keyboard shortcut
+            sc_x = QtGui.QShortcut(QtGui.QKeySequence("x"), self)
+            sc_x.activated.connect(self.extract_at_cursor)
 
             self._apply_cmap()
 
@@ -2562,6 +2576,13 @@ def build_gui():
             xy = self._need_cursor()
             if xy is not None:
                 self.update_analysis(*xy)
+
+        def extract_at_cursor(self):
+            """Trace + extract a spectrum at the keyboard cursor (the 'x' key),
+            the keyboard equivalent of a click in spectrum mode."""
+            xy = self._need_cursor()
+            if xy is not None:
+                self._extract_spectrum_at(xy[0], xy[1], newcoord=True)
 
         # ---- actions ------------------------------------------------
         def open_file(self):

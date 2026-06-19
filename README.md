@@ -28,7 +28,8 @@ spectral extraction in one window.
   viridis/inferno/magma/cividis/turbo and rainbow, with inversion and
   mouse brightness/contrast.
 - **Coordinates:** cursor readout in J2000 (sexagesimal or degrees),
-  B1950, Galactic, Ecliptic, or pixels.
+  B1950, Galactic, Ecliptic, or pixels, plus a persistent status-bar
+  indicator of which buffer (live / 1-3 / RGB) is on screen.
 - **Analysis tabs:** Photometry, Statistics, Separations, and Spectrum
   (described below).
 - **Cuts:** independent row / column / arbitrary-vector cut windows, with
@@ -42,9 +43,10 @@ spectral extraction in one window.
 ### Photometry
 
 ATV/DAOPHOT aperture photometry with centroiding. The radial profile and
-FWHM can be shown in pixels or arcsec (when a celestial WCS is present),
-the aperture/sky circles can be toggled on the image, and measurements can
-be logged to a CSV file.
+FWHM can be shown in pixels or, with the angular-units checkbox, in
+arcsec/arcmin/degree (when a celestial WCS is present), the aperture/sky
+circles can be toggled on the image, and measurements can be logged to a
+CSV file.
 
 ![VTA photometry tab](docs/screenshot_photometry.png)
 
@@ -66,7 +68,8 @@ S/N — accumulated into a table and exportable to CSV.
 
 ### Spectrum
 
-Click a trace in `spectrum` mode to trace and extract a 1-D spectrum (a
+Click a trace in `spectrum` mode (or press `x` at the cursor) to trace and
+extract a 1-D spectrum (a
 port of ATV's `atvextract`): iterative trace centroiding, polynomial trace
 fit, partial-pixel aperture summation, and background subtraction. All
 extraction parameters are editable in the tab and re-extract live; the
@@ -185,7 +188,11 @@ python vta.py image.fits     # open a FITS file directly
 
 In the GUI, see **Help ▸ VTA help** (or press **F1**) for the full guide.
 Pick an interaction **mode** from the toolbar pulldown (scan, color, zoom,
-imexam, vector, row, col, spectrum, blink) and click on the image.
+imexam, vector, row, col, spectrum, blink) and click on the image. Several
+actions also have keyboard shortcuts at the cursor: **p** (photometry),
+**x** (spectral extraction), **r** / **c** (row / column cuts), arrow keys
+(nudge the cursor, Shift = 10 px), and **1** / **2** / **3** (show blink
+buffers).
 
 ## Status
 
