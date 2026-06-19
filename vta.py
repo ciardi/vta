@@ -44,7 +44,7 @@ In the GUI, see Help > VTA help (or F1) for the full guide.
 
 Author: David R. Ciardi.  Heritage: ATV by Aaron Barth.
 
-Version: 2026-06-16
+The release version is defined once, in __version__ below.
 """
 
 from __future__ import annotations
@@ -55,9 +55,16 @@ import re
 import argparse
 import numpy as np
 
-# Update this date whenever VTA is changed.
-__version__ = "2026-06-13"
-__date__ = "2026-06-13"
+# ---------------------------------------------------------------------------
+# Single source of truth for the VTA release. Bump these on each release;
+# everything else (window/help/about text, the status-bar badge) reads them.
+# ---------------------------------------------------------------------------
+__version__ = "1.00"
+__date__ = "2026-06-19"
+
+# Shared presentation constants (plain strings; no Qt dependency).
+MONO_STYLE = "font-family: monospace;"      # status-bar / readout labels
+PLOT_LINE_COLOR = "#1f4e79"                 # row/col/vector cut + spectrum
 
 
 def _configure_qt_platform():
@@ -394,6 +401,20 @@ def format_counts(v):
     if abs(v) < 1.0e6:
         return f"{v:.1f}"
     return f"{v:.4e}"
+
+
+# Angular units shared by the radial-profile, vector-cut, and scale-bar
+# controls: arcsec per <unit>.
+ARCSEC_PER_UNIT = {"arcsec": 1.0, "arcmin": 60.0, "degree": 3600.0}
+
+
+def angular_factor(pixscale_arcsec, unit):
+    """Multiplier converting a distance in *pixels* to `unit`
+    (arcsec / arcmin / degree), given the pixel scale in arcsec/pixel.
+    Returns None when there is no usable pixel scale."""
+    if not pixscale_arcsec:
+        return None
+    return pixscale_arcsec / ARCSEC_PER_UNIT[unit]
 
 
 def transform_wcs_affine(wcs, A, b):
@@ -939,7 +960,8 @@ buffer is displayed, or <i>buffer: RGB</i> for a composite. Next to it is
 the cursor x / y / pixel-value readout. The selector at the bottom
 <i>right</i> switches the coordinate readout between J2000 (sexagesimal),
 J2000 degrees, B1950, Galactic, Ecliptic, and Pixel; all but Pixel need a
-celestial WCS in the header.</p>
+celestial WCS in the header. At the far right, a small <b>V<i>n.nn</i></b>
+badge shows the running VTA version (hover for the release date).</p>
 
 <h3>Analysis</h3>
 <p><b>Photometry</b> (imexam click or <b>p</b>): ATV/DAOPHOT-style
@@ -1377,9 +1399,9 @@ def build_gui():
             self.xy_label = QtWidgets.QLabel("x= --  y= --  value= --")
             self.wcs_label = QtWidgets.QLabel("")
             self.buffer_label.setStyleSheet(
-                "font-family: monospace; font-weight: bold;")
-            self.xy_label.setStyleSheet("font-family: monospace;")
-            self.wcs_label.setStyleSheet("font-family: monospace;")
+                MONO_STYLE + " font-weight: bold;")
+            self.xy_label.setStyleSheet(MONO_STYLE)
+            self.wcs_label.setStyleSheet(MONO_STYLE)
             # buffer indicator sits at the far left, before x/y/value
             self.status.addWidget(self.buffer_label)
             self.status.addWidget(self.xy_label)
@@ -1392,6 +1414,12 @@ def build_gui():
             self.coordsys_combo.setToolTip("Coordinate system for the readout")
             self.coordsys_combo.currentTextChanged.connect(self._on_coordsys)
             self.status.addPermanentWidget(self.coordsys_combo)
+            # version badge, far lower-right next to the coordinate selector
+            self.version_label = QtWidgets.QLabel(f"V{__version__}")
+            self.version_label.setStyleSheet(MONO_STYLE)
+            self.version_label.setToolTip(f"VTA version {__version__} "
+                                          f"({__date__})")
+            self.status.addPermanentWidget(self.version_label)
 
             self.glw.scene().sigMouseMoved.connect(self._on_mouse_move)
             self.glw.scene().sigMouseClicked.connect(self._on_click)
@@ -1806,7 +1834,7 @@ def build_gui():
                 lambda *_: self._show_slice(self._slice))
             lay.addWidget(self.cube_method)
             self.cube_label = QtWidgets.QLabel("")
-            self.cube_label.setStyleSheet("font-family: monospace;")
+            self.cube_label.setStyleSheet(MONO_STYLE)
             lay.addWidget(self.cube_label)
             dock.setWidget(w)
             self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, dock)
@@ -2192,7 +2220,7 @@ def build_gui():
             ny, nx = self.model.data.shape
             x = s["x"] if s["x"] is not None else 0.7 * nx
             y = s["y"] if s["y"] is not None else 0.12 * ny
-            arcsec = s["length"] * (60.0 if s["units"] == "arcmin" else 1.0)
+            arcsec = s["length"] * ARCSEC_PER_UNIT.get(s["units"], 1.0)
             bar_pix = arcsec / scale
             col = self._color_hex(s["color"])
             ln = pg.PlotDataItem([x, x + bar_pix], [y, y],
@@ -2505,12 +2533,11 @@ def build_gui():
             m.addSeparator()
             m.addAction("Quit", self.close)
 
-            # photometry-at-cursor keyboard shortcut
-            sc = QtGui.QShortcut(QtGui.QKeySequence("p"), self)
-            sc.activated.connect(self.photometry_at_cursor)
-            # spectral-extraction-at-cursor keyboard shortcut
-            sc_x = QtGui.QShortcut(QtGui.QKeySequence("x"), self)
-            sc_x.activated.connect(self.extract_at_cursor)
+            # NB: p / x / r / c are handled in eventFilter (an application
+            # event filter), NOT via QShortcut. The cut windows embed a
+            # matplotlib canvas whose own key bindings (p=pan, r=home,
+            # c=back) and focus handling swallow shortcuts; an application
+            # event filter sees the KeyPress first and can consume it.
 
             self._apply_cmap()
 
@@ -2550,8 +2577,8 @@ def build_gui():
             tb = QtWidgets.QTextBrowser()
             tb.setOpenExternalLinks(True)
             tb.setHtml(HELP_HTML + f"<hr><p><i>VTA version "
-                       f"{__version__} &middot; David R. Ciardi &middot; "
-                       f"heritage: ATV by Aaron Barth</i></p>")
+                       f"{__version__} ({__date__}) &middot; David R. Ciardi "
+                       f"&middot; heritage: ATV by Aaron Barth</i></p>")
             lay.addWidget(tb)
             bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
             bb.rejected.connect(win.close)
@@ -2565,7 +2592,7 @@ def build_gui():
                 self, "About VTA",
                 "<b>Visualization Tool for Astronomy (VTA)</b> \u2014 an "
                 "astronomical FITS image viewer for Python.<br><br>"
-                f"Version {__version__}.<br><br>"
+                f"Version {__version__} ({__date__}).<br><br>"
                 "Built on PySide6, pyqtgraph, astropy, scipy, photutils, "
                 "and matplotlib.<br><br>"
                 "Heritage: ATV by Aaron Barth.<br>"
@@ -2583,6 +2610,18 @@ def build_gui():
             xy = self._need_cursor()
             if xy is not None:
                 self._extract_spectrum_at(xy[0], xy[1], newcoord=True)
+
+        def row_at_cursor(self):
+            """Plot the row through the keyboard cursor (the 'r' key)."""
+            xy = self._need_cursor()
+            if xy is not None:
+                self.plot_row(xy[1])
+
+        def col_at_cursor(self):
+            """Plot the column through the keyboard cursor (the 'c' key)."""
+            xy = self._need_cursor()
+            if xy is not None:
+                self.plot_col(xy[0])
 
         # ---- actions ------------------------------------------------
         def open_file(self):
@@ -2910,36 +2949,46 @@ def build_gui():
             self._set_cursor(x, y)
 
         def eventFilter(self, obj, ev):
-            """Application-level key handling: arrow keys nudge the cursor
-            (Shift = 10 px), digits 1-3 show blink buffers, r/c plot the
-            row/column through the cursor (also when a plot window has
-            focus).
+            """Application-level key handling. Installed on the QApplication,
+            so this sees every KeyPress *before* the focused widget does and
+            can consume it.
+
+            The cursor-action keys p / x / r / c (photometry, spectral
+            extraction, row, column) fire from the main window *and* from the
+            standalone row/column/vector cut windows. Consuming them here is
+            essential: those windows embed a matplotlib canvas whose default
+            bindings map p->pan, r->home, c->back, and whose focus handling
+            otherwise swallows QShortcuts. Arrow keys (Shift = 10 px) and
+            digits 1-3 (blink buffers) act on the main window only.
             """
             if ev.type() != QtCore.QEvent.KeyPress:
                 return super().eventFilter(obj, ev)
             k = ev.key()
             fw = QtWidgets.QApplication.focusWidget()
-            typing = isinstance(fw, (QtWidgets.QLineEdit,
-                                     QtWidgets.QAbstractSpinBox,
-                                     QtWidgets.QComboBox))
-            main_active = self.isActiveWindow()
-            plot_active = any(
-                pw["win"].isActiveWindow()
-                for pw in getattr(self, "_plot_windows", {}).values())
+            # free-text widgets keep their keystrokes (e.g. the CSV-filename
+            # fields); numeric spin boxes never accept letters, so cursor
+            # actions are still allowed to fire while one has focus -- this is
+            # what makes r/c work when a cut window's spinbox is focused.
+            text_entry = isinstance(fw, (QtWidgets.QLineEdit,
+                                         QtWidgets.QComboBox))
+            spinning = isinstance(fw, QtWidgets.QAbstractSpinBox)
 
-            # r / c: plot the row / column through the cursor. Works whether
-            # the main window or one of the cut windows is focused.
-            if not typing and self._cursor_xy is not None \
-                    and (main_active or plot_active):
-                if k == QtCore.Qt.Key_R:
-                    self.plot_row(self._cursor_xy[1])
-                    return True
-                if k == QtCore.Qt.Key_C:
-                    self.plot_col(self._cursor_xy[0])
-                    return True
+            # is the active window one of ours (main window or a cut window)?
+            aw = QtWidgets.QApplication.activeWindow()
+            plot_wins = [pw["win"]
+                         for pw in getattr(self, "_plot_windows", {}).values()]
+            in_vta_window = (aw is self) or (aw in plot_wins)
+
+            cursor_actions = {QtCore.Qt.Key_P: self.photometry_at_cursor,
+                              QtCore.Qt.Key_X: self.extract_at_cursor,
+                              QtCore.Qt.Key_R: self.row_at_cursor,
+                              QtCore.Qt.Key_C: self.col_at_cursor}
+            if k in cursor_actions and in_vta_window and not text_entry:
+                cursor_actions[k]()
+                return True                     # eat it before matplotlib
 
             # arrow-key cursor nudge + blink digits act on the main window
-            if main_active and not typing:
+            if self.isActiveWindow() and not (text_entry or spinning):
                 arrows = {QtCore.Qt.Key_Up: (0, 1), QtCore.Qt.Key_Down: (0, -1),
                           QtCore.Qt.Key_Left: (-1, 0),
                           QtCore.Qt.Key_Right: (1, 0)}
@@ -2976,7 +3025,7 @@ def build_gui():
             lay.addWidget(self.file_label)
 
             self.dims_label = QtWidgets.QLabel("")
-            self.dims_label.setStyleSheet("font-family: monospace;")
+            self.dims_label.setStyleSheet(MONO_STYLE)
             self.dims_label.setToolTip("Image size (rows \u00d7 columns)")
             lay.addWidget(self.dims_label)
 
@@ -3112,7 +3161,7 @@ def build_gui():
             self.phot_result = QtWidgets.QLabel(
                 "imexam mode: click a source on the image.")
             self.phot_result.setStyleSheet(
-                "font-family: monospace; font-size: 11px;")
+                MONO_STYLE + " font-size: 11px;")
             self.phot_result.setTextInteractionFlags(
                 QtCore.Qt.TextSelectableByMouse)
             pv.addWidget(self.phot_result)
@@ -3185,7 +3234,7 @@ def build_gui():
             self.stat_result = QtWidgets.QLabel(
                 "imexam mode: click a point on the image.")
             self.stat_result.setStyleSheet(
-                "font-family: monospace; font-size: 11px;")
+                MONO_STYLE + " font-size: 11px;")
             self.stat_result.setTextInteractionFlags(
                 QtCore.Qt.TextSelectableByMouse)
             sv.addWidget(self.stat_result)
@@ -3226,13 +3275,13 @@ def build_gui():
             self.sep_ref_label = QtWidgets.QLabel("reference: (none set)")
             self.sep_tgt_label = QtWidgets.QLabel("target:    (none yet)")
             for lb in (self.sep_ref_label, self.sep_tgt_label):
-                lb.setStyleSheet("font-family: monospace; font-size: 11px;")
+                lb.setStyleSheet(MONO_STYLE + " font-size: 11px;")
                 lb.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
                 zv.addWidget(lb)
             self.sep_result = QtWidgets.QLabel(
                 "Set a reference, then imexam a second source.")
             self.sep_result.setStyleSheet(
-                "font-family: monospace; font-size: 12px;")
+                MONO_STYLE + " font-size: 12px;")
             self.sep_result.setTextInteractionFlags(
                 QtCore.Qt.TextSelectableByMouse)
             zv.addWidget(self.sep_result)
@@ -3277,8 +3326,7 @@ def build_gui():
             sv.addWidget(self.spec_canvas, 1)
             self.spec_status = QtWidgets.QLabel(
                 "spectrum mode: click on a spectral trace to extract it.")
-            self.spec_status.setStyleSheet("font-family: monospace; "
-                                           "font-size: 11px;")
+            self.spec_status.setStyleSheet(MONO_STYLE + " font-size: 11px;")
             sv.addWidget(self.spec_status)
 
             grid = QtWidgets.QGridLayout()
@@ -3539,11 +3587,9 @@ def build_gui():
             back to pixels when unchecked or without a celestial WCS."""
             if (getattr(self, "radial_ang_chk", None) is not None
                     and self.radial_ang_chk.isChecked()):
-                scale = self._pixscale_arcsec()
-                if scale:
-                    unit = self.radial_unit.currentText()
-                    factor = scale / {"arcsec": 1.0, "arcmin": 60.0,
-                                      "degree": 3600.0}[unit]
+                unit = self.radial_unit.currentText()
+                factor = angular_factor(self._pixscale_arcsec(), unit)
+                if factor is not None:
                     return unit, factor
             return "pix", 1.0
 
@@ -3964,7 +4010,7 @@ def build_gui():
             lay.addWidget(find)
             txt = QtWidgets.QPlainTextEdit()
             txt.setReadOnly(True)
-            txt.setStyleSheet("font-family: monospace; font-size: 11px;")
+            txt.setStyleSheet(MONO_STYLE + " font-size: 11px;")
             try:
                 cards = self.model.header.tostring(sep="\n", endcard=False,
                                                    padding=False)
@@ -4062,6 +4108,13 @@ def build_gui():
                 s.set_color("black")
             pw["canvas"].draw_idle()
 
+        def _plot_step(self, pw, x, y, title, xlabel, ylabel="Pixel value"):
+            """Step-plot x/y into a cut window with the shared cut styling."""
+            ax = pw["ax"]
+            ax.clear()
+            ax.step(x, y, where="mid", color=PLOT_LINE_COLOR, lw=1.2)
+            self._finish_plot(pw, title, xlabel, ylabel)
+
         def _need_cursor(self):
             """Return the keyboard-cursor position or prompt the user to set
             one.
@@ -4075,65 +4128,45 @@ def build_gui():
             return self._cursor_xy
 
         def plot_row(self, y0=None):
-            """Open/update the row-plot window for row y0 (default: cursor
-            row).
-            """
-            if self.model.data is None:
-                return
-            ny, nx = self.model.data.shape
-            if y0 is None:
-                y0 = self._cursor_xy[1] if self._cursor_xy else ny // 2
-            y0 = int(np.clip(int(y0), 0, ny - 1))
-            pw = self._get_plot_window("row")
-            pw["spin"].blockSignals(True)
-            pw["spin"].setRange(0, ny - 1)
-            pw["spin"].setValue(y0)
-            pw["spin"].blockSignals(False)
-            self._render_row(y0)
+            """Open/update the row-plot window (default: cursor row)."""
+            self._plot_line("row", y0)
 
         def plot_col(self, x0=None):
-            """Open/update the column-plot window for column x0 (default:
-            cursor column).
-            """
+            """Open/update the column-plot window (default: cursor column)."""
+            self._plot_line("col", x0)
+
+        def _plot_line(self, kind, idx=None):
+            """Open/update the row ('row') or column ('col') cut window at
+            index idx (default: the cursor's row / column)."""
             if self.model.data is None:
                 return
             ny, nx = self.model.data.shape
-            if x0 is None:
-                x0 = self._cursor_xy[0] if self._cursor_xy else nx // 2
-            x0 = int(np.clip(int(x0), 0, nx - 1))
-            pw = self._get_plot_window("col")
+            lim = (ny - 1) if kind == "row" else (nx - 1)
+            if idx is None:
+                c = self._cursor_xy
+                idx = (c[1] if kind == "row" else c[0]) if c else lim // 2
+            idx = int(np.clip(int(idx), 0, lim))
+            pw = self._get_plot_window(kind)
             pw["spin"].blockSignals(True)
-            pw["spin"].setRange(0, nx - 1)
-            pw["spin"].setValue(x0)
+            pw["spin"].setRange(0, lim)
+            pw["spin"].setValue(idx)
             pw["spin"].blockSignals(False)
-            self._render_col(x0)
+            self._render_line(kind, idx)
 
         def _on_plot_spin(self, kind, v):
             """Row/column spinbox changed: re-render that window."""
+            self._render_line(kind, v)
+
+        def _render_line(self, kind, idx):
+            """Plot pixel values along one row or column."""
             if kind == "row":
-                self._render_row(v)
+                xs, vals = row_values(self.model.data, idx)
+                title, xlabel = f"Row {int(idx)}", "Column"
             else:
-                self._render_col(v)
-
-        def _render_row(self, y):
-            """Plot pixel values along one row."""
-            pw = self._get_plot_window("row")
-            cols, vals = row_values(self.model.data, y)
-            ax = pw["ax"]
-            ax.clear()
-            ax.set_facecolor("white")
-            ax.step(cols, vals, where="mid", color="#1f4e79", lw=1.2)
-            self._finish_plot(pw, f"Row {int(y)}", "Column", "Pixel value")
-
-        def _render_col(self, x):
-            """Plot pixel values along one column."""
-            pw = self._get_plot_window("col")
-            rows, vals = col_values(self.model.data, x)
-            ax = pw["ax"]
-            ax.clear()
-            ax.set_facecolor("white")
-            ax.step(rows, vals, where="mid", color="#1f4e79", lw=1.2)
-            self._finish_plot(pw, f"Column {int(x)}", "Row", "Pixel value")
+                xs, vals = col_values(self.model.data, idx)
+                title, xlabel = f"Column {int(idx)}", "Row"
+            self._plot_step(self._get_plot_window(kind), xs, vals,
+                            title, xlabel)
 
         def _plot_vector(self, x0, y0, x1, y1):
             """Open/update the vector-cut window; enable the angular-distance
@@ -4176,20 +4209,15 @@ def build_gui():
             npix = dist[-1]
             xlabel = "Distance (pixels)"
             if pw["ang_chk"].isChecked():
-                scale = self._pixscale_arcsec()
-                if scale is not None:
-                    unit = pw["unit_combo"].currentText()
-                    factor = scale / {"arcsec": 1.0, "arcmin": 60.0,
-                                      "degree": 3600.0}[unit]
+                unit = pw["unit_combo"].currentText()
+                factor = angular_factor(self._pixscale_arcsec(), unit)
+                if factor is not None:
                     dist = dist * factor
                     xlabel = f"Distance ({unit})"
-            ax = pw["ax"]
-            ax.clear()
-            ax.set_facecolor("white")
-            ax.step(dist, vals, where="mid", color="#1f4e79", lw=1.2)
-            self._finish_plot(
-                pw, f"Vector [{x0:.0f},{y0:.0f}] \u2192 [{x1:.0f},{y1:.0f}]  "
-                f"(len {npix:.1f} px)", xlabel, "Pixel value")
+            self._plot_step(
+                pw, dist, vals,
+                f"Vector [{x0:.0f},{y0:.0f}] \u2192 [{x1:.0f},{y1:.0f}]  "
+                f"(len {npix:.1f} px)", xlabel)
 
         # ---- spectral extraction (port of ATV atvextract) ------------
         def _clear_spec_overlays(self):
@@ -4295,7 +4323,7 @@ def build_gui():
             ax.clear()
             self.spec_fig.set_facecolor("white")
             ax.set_facecolor("white")
-            ax.step(xspec, spec, where="mid", color="#1f4e79", lw=1.2)
+            ax.step(xspec, spec, where="mid", color=PLOT_LINE_COLOR, lw=1.2)
             ax.set_title("Extracted Spectrum", color="black", fontsize=10)
             ax.set_xlabel("Column", color="black")
             ax.set_ylabel("Counts", color="black")

@@ -29,7 +29,8 @@ spectral extraction in one window.
   mouse brightness/contrast.
 - **Coordinates:** cursor readout in J2000 (sexagesimal or degrees),
   B1950, Galactic, Ecliptic, or pixels, plus a persistent status-bar
-  indicator of which buffer (live / 1-3 / RGB) is on screen.
+  indicator of which buffer (live / 1-3 / RGB) is on screen and a version
+  badge in the lower-right corner.
 - **Analysis tabs:** Photometry, Statistics, Separations, and Spectrum
   (described below).
 - **Cuts:** independent row / column / arbitrary-vector cut windows, with
@@ -196,8 +197,20 @@ buffers).
 
 ## Status
 
-VTA is in active development and provided as-is. Bug reports and feature
-requests are welcome via the Issues tab.
+VTA is at **version 1.00** (released 2026-06-19) and provided as-is. Bug
+reports and feature requests are welcome via the Issues tab.
+
+## Tests
+
+The numerical core (stretches, sky/scaling, centroiding, photometry,
+statistics, profiles, cuts, tracing/extraction) is Qt-free and unit-tested.
+The tests import `vta` without starting any GUI, so they run headless and
+do not need PySide6 or pyqtgraph:
+
+```bash
+python3 -m pip install pytest
+pytest test_vta.py
+```
 
 ## Heritage & credits
 
