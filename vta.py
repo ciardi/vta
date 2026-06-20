@@ -929,7 +929,8 @@ radial profile, statistics)</td></tr>
 cut; x axis can be angular (arcsec/arcmin/degree) when a WCS pixel scale
 exists</td></tr>
 <tr><td><b>row / col</b></td><td>click to plot that row / column; the
-spinbox in the plot window fine-tunes</td></tr>
+spinbox in the plot window fine-tunes, and the x axis can be angular
+(arcsec/arcmin/degree) when a WCS pixel scale exists</td></tr>
 <tr><td><b>spectrum</b></td><td>click on a spectral trace to extract it,
 or press <b>x</b> at the cursor (see below)</td></tr>
 </table>
@@ -4068,21 +4069,22 @@ def build_gui():
                 h.addWidget(spin)
                 ctrl.addWidget(box)
                 pw["spin"] = spin
-            else:                              # vector: angular-distance axis
-                box = QtWidgets.QWidget()
-                h = QtWidgets.QHBoxLayout(box)
-                h.setContentsMargins(8, 0, 0, 0)
-                chk = QtWidgets.QCheckBox("x axis in angular distance")
-                chk.toggled.connect(self._on_vec_units)
-                combo = QtWidgets.QComboBox()
-                combo.addItems(["arcsec", "arcmin", "degree"])
-                combo.setCurrentText("arcsec")
-                combo.currentIndexChanged.connect(self._on_vec_units)
-                h.addWidget(chk)
-                h.addWidget(combo)
-                ctrl.addWidget(box)
-                pw["ang_chk"] = chk
-                pw["unit_combo"] = combo
+            # angular-distance x-axis control (row / col / vector all share it)
+            abox = QtWidgets.QWidget()
+            ah = QtWidgets.QHBoxLayout(abox)
+            ah.setContentsMargins(8, 0, 0, 0)
+            chk = QtWidgets.QCheckBox("x axis in angular distance")
+            combo = QtWidgets.QComboBox()
+            combo.addItems(["arcsec", "arcmin", "degree"])
+            combo.setCurrentText("arcsec")
+            chk.toggled.connect(lambda _=False, k=kind: self._on_plot_units(k))
+            combo.currentIndexChanged.connect(
+                lambda _=0, k=kind: self._on_plot_units(k))
+            ah.addWidget(chk)
+            ah.addWidget(combo)
+            ctrl.addWidget(abox)
+            pw["ang_chk"] = chk
+            pw["unit_combo"] = combo
             ctrl.addStretch(1)
             lay.addLayout(ctrl)
             canvas.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
@@ -4151,6 +4153,7 @@ def build_gui():
             pw["spin"].setRange(0, lim)
             pw["spin"].setValue(idx)
             pw["spin"].blockSignals(False)
+            self._update_plot_angular_enabled(kind)
             self._render_line(kind, idx)
 
         def _on_plot_spin(self, kind, v):
@@ -4158,44 +4161,64 @@ def build_gui():
             self._render_line(kind, v)
 
         def _render_line(self, kind, idx):
-            """Plot pixel values along one row or column."""
+            """Plot pixel values along one row or column, converting the x
+            axis to arcsec/arcmin/degree when the angular checkbox is set."""
+            pw = self._get_plot_window(kind)
             if kind == "row":
                 xs, vals = row_values(self.model.data, idx)
-                title, xlabel = f"Row {int(idx)}", "Column"
+                title, base = f"Row {int(idx)}", "Column"
             else:
                 xs, vals = col_values(self.model.data, idx)
-                title, xlabel = f"Column {int(idx)}", "Row"
-            self._plot_step(self._get_plot_window(kind), xs, vals,
-                            title, xlabel)
+                title, base = f"Column {int(idx)}", "Row"
+            xlabel = base
+            if pw.get("ang_chk") is not None and pw["ang_chk"].isChecked():
+                unit = pw["unit_combo"].currentText()
+                factor = angular_factor(self._pixscale_arcsec(), unit)
+                if factor is not None:
+                    xs = xs * factor
+                    xlabel = f"{base} ({unit})"
+            self._plot_step(pw, xs, vals, title, xlabel)
 
         def _plot_vector(self, x0, y0, x1, y1):
             """Open/update the vector-cut window; enable the angular-distance
             controls only when the WCS provides a pixel scale.
             """
             self._vec_pts = (x0, y0, x1, y1)
-            pw = self._get_plot_window("vector")
-            scale = self._pixscale_arcsec()
-            have_scale = scale is not None
-            chk = pw["ang_chk"]
-            chk.blockSignals(True)
-            chk.setEnabled(have_scale)
-            if not have_scale:
-                chk.setChecked(False)
-            chk.blockSignals(False)
-            chk.setToolTip("" if have_scale else "No pixel scale "
-                           "(celestial WCS) available in the header.")
-            pw["unit_combo"].setEnabled(have_scale and chk.isChecked())
+            self._get_plot_window("vector")
+            self._update_plot_angular_enabled("vector")
             self._render_vector()
 
-        def _on_vec_units(self, *_):
-            """Angular checkbox/units changed: re-render the vector cut."""
-            pw = getattr(self, "_plot_windows", {}).get("vector")
+        def _update_plot_angular_enabled(self, kind):
+            """Enable a cut window's angular x-axis control only when a
+            celestial WCS pixel scale exists; otherwise uncheck (pixels) and
+            disable it. Shared by the row, column, and vector windows."""
+            pw = getattr(self, "_plot_windows", {}).get(kind)
+            if pw is None or "ang_chk" not in pw:
+                return
+            have = self._pixscale_arcsec() is not None
+            chk = pw["ang_chk"]
+            chk.blockSignals(True)
+            chk.setEnabled(have)
+            if not have:
+                chk.setChecked(False)
+            chk.blockSignals(False)
+            chk.setToolTip("" if have else "No pixel scale "
+                           "(celestial WCS) available in the header.")
+            pw["unit_combo"].setEnabled(have and chk.isChecked())
+
+        def _on_plot_units(self, kind):
+            """Angular checkbox/unit changed in a cut window: keep the unit
+            combo live only while the box is checked, then re-render."""
+            pw = getattr(self, "_plot_windows", {}).get(kind)
             if pw is None or not pw["win"].isVisible():
                 return
             pw["unit_combo"].setEnabled(pw["ang_chk"].isEnabled()
                                         and pw["ang_chk"].isChecked())
-            if getattr(self, "_vec_pts", None) is not None:
-                self._render_vector()
+            if kind == "vector":
+                if getattr(self, "_vec_pts", None) is not None:
+                    self._render_vector()
+            else:
+                self._render_line(kind, pw["spin"].value())
 
         def _render_vector(self):
             """Plot the interpolated cut, converting the x axis to
