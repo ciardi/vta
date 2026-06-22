@@ -28,7 +28,8 @@ Analysis
 Annotation & manipulation
     Dialog-driven labels (mouse-drawn arrows, compass, scale bar,
     contours), exact rotations/flips that transform the WCS with the
-    pixels, arbitrary-angle rotation, blink buffers with auto-blink,
+    pixels, arbitrary-angle rotation, blink buffers with auto-blink and
+    buffer subtraction (dithered-frame background removal),
     RGB composites, and FITS / spectrum / plot saving.
 
 The numerical core (stretches, WCS handling, photometry, statistics,
@@ -59,8 +60,8 @@ import numpy as np
 # Single source of truth for the VTA release. Bump these on each release;
 # everything else (window/help/about text, the status-bar badge) reads them.
 # ---------------------------------------------------------------------------
-__version__ = "1.00"
-__date__ = "2026-06-19"
+__version__ = "1.10"
+__date__ = "2026-06-22"
 
 # Shared presentation constants (plain strings; no Qt dependency).
 MONO_STYLE = "font-family: monospace;"      # status-bar / readout labels
@@ -1001,6 +1002,17 @@ in RGB mode the readout shows R/G/B values and photometry/stretch are
 disabled; <b>Exit RGB</b> returns. The status-bar buffer indicator
 (bottom left) tracks whether you are viewing the live image, a numbered
 buffer, or the RGB composite.</p>
+<p><b>Image arithmetic (subtract)&hellip;</b> opens a small dialog for
+buffer subtraction &mdash; the classic dithered-frame background removal.
+Load a FITS file straight into buffer 1, 2, or 3 (or use whatever is
+already stored there), then pick a <b>Source</b> and a <b>Background</b>
+buffer and a result buffer; <b>Subtract</b> computes
+<i>Source&nbsp;&minus;&nbsp;Background</i> into the result buffer and
+displays it. The two inputs must have equal dimensions (no registration or
+scaling is applied). The difference inherits the Source header/WCS (with a
+HISTORY note) and is shown with the default asinh stretch at ZScale limits,
+which keeps the near-zero residuals visible. With all three buffers filled
+you can then blink 1/2/3 to compare source, background, and difference.</p>
 
 <h3>Spectral extraction</h3>
 <p>Pick <b>spectrum</b> mode and click on a spectral trace (or press
@@ -1569,6 +1581,8 @@ def build_gui():
             self._autoblink_action.toggled.connect(self._toggle_autoblink)
             menu.addAction("Clear buffers", self._clear_blink)
             menu.addSeparator()
+            menu.addAction("Image arithmetic (subtract)\u2026",
+                           self._arith_dialog)
             menu.addAction("Make RGB\u2026", self._makergb_dialog)
             menu.addAction("Exit RGB", self._exit_rgb)
 
@@ -1676,6 +1690,177 @@ def build_gui():
             self._current_buffer = None
             self._update_buffer_label()
             self.status.showMessage("Cleared blink buffers.", 3000)
+
+        # ---- image arithmetic (buffer subtraction) ------------------
+        def _state_from_array(self, data, header, wcs, label, zscale=False):
+            """Build a blink-buffer state dict for a standalone 2-D array (a
+            file loaded straight into a buffer, or a computed difference),
+            without disturbing the live image. A fresh ImageModel does the
+            autoscale. For a difference, `zscale` keeps the default asinh
+            stretch (which handles the negative values fine) but sets the
+            display limits with ZScale, since difference images straddle zero
+            and the source's absolute range would wash them out.
+            """
+            m = type(self.model)()
+            m.set_data(np.asarray(data, dtype=float), header, wcs)
+            if zscale:
+                m.zscale()
+            return dict(data=m.data.copy(), header=m.header, wcs=m.wcs,
+                        scaling=m.scaling, min_value=m.min_value,
+                        max_value=m.max_value, asinh_beta=m.asinh_beta,
+                        image_min=m.image_min, image_max=m.image_max,
+                        cmap=self.cmap_combo.currentText(),
+                        invert=self.invert_chk.isChecked(),
+                        bc=[0.5, 0.526], label=label, view=None)
+
+        def _load_file_into_buffer(self, k, path):
+            """Load the first 2-D image HDU of `path` straight into blink
+            buffer k (does not touch the live image). Returns True on success.
+            """
+            try:
+                data, header, wcs = load_fits(path)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "VTA", str(e))
+                return False
+            if np.ndim(data) != 2:
+                QtWidgets.QMessageBox.warning(
+                    self, "VTA", "Buffer arithmetic works on 2-D images; "
+                    f"this file gave {np.ndim(data)}-D data.")
+                return False
+            self._blink[k] = self._state_from_array(
+                data, header, wcs, os.path.basename(path))
+            if self._current_buffer == k:        # refresh if it's on screen
+                self._show_blink(k)
+            self.status.showMessage(
+                f"Loaded {os.path.basename(path)} into buffer {k + 1}.", 4000)
+            return True
+
+        def _subtract_buffers(self, src_k, bg_k, dst_k):
+            """Compute (Source - Background) from two filled, equal-shape
+            buffers into the destination buffer and display it. Returns True
+            on success.
+            """
+            src, bg = self._blink[src_k], self._blink[bg_k]
+            if src is None or bg is None:
+                QtWidgets.QMessageBox.warning(
+                    self, "VTA", "Both the Source and Background buffers "
+                    "must be filled before subtracting.")
+                return False
+            if src["data"].shape != bg["data"].shape:
+                QtWidgets.QMessageBox.warning(
+                    self, "VTA", f"Shape mismatch: buffer {src_k + 1} is "
+                    f"{src['data'].shape} but buffer {bg_k + 1} is "
+                    f"{bg['data'].shape}.  Equal dimensions are required.")
+                return False
+            diff = src["data"].astype(float) - bg["data"].astype(float)
+            hdr = src["header"].copy() if src["header"] is not None else None
+            if hdr is not None:
+                try:
+                    hdr.add_history(
+                        f"VTA {__version__}: buffer{dst_k + 1} = "
+                        f"buffer{src_k + 1} - buffer{bg_k + 1} "
+                        f"(Source - Background)")
+                except Exception:
+                    pass
+            label = f"buf{src_k + 1} \u2212 buf{bg_k + 1}"
+            self._blink[dst_k] = self._state_from_array(
+                diff, hdr, src["wcs"], label, zscale=True)
+            self._show_blink(dst_k)
+            self.status.showMessage(
+                f"Buffer {dst_k + 1} = buffer {src_k + 1} \u2212 "
+                f"buffer {bg_k + 1}  (Source \u2212 Background).", 5000)
+            return True
+
+        def _arith_dialog(self):
+            """Image-arithmetic dialog: load FITS files into blink buffers (or
+            use what is already there) and subtract Source - Background into a
+            chosen buffer."""
+            if getattr(self, "_arith_dlg", None) is not None \
+                    and self._arith_dlg.isVisible():
+                self._arith_dlg.raise_()
+                self._arith_dlg.activateWindow()
+                return
+            dlg = QtWidgets.QDialog(self)
+            dlg.setWindowTitle("VTA \u2014 image arithmetic")
+            lay = QtWidgets.QVBoxLayout(dlg)
+
+            def buffer_combo():
+                c = QtWidgets.QComboBox()
+                c.addItems(["Buffer 1", "Buffer 2", "Buffer 3"])
+                return c
+
+            # --- buffer contents + per-buffer file loading ---
+            gb = QtWidgets.QGroupBox("Buffers  (load a file, or use what is "
+                                     "already stored)")
+            gl = QtWidgets.QGridLayout(gb)
+            status_labels = {}
+            load_btns = {}
+            for k in range(3):
+                gl.addWidget(QtWidgets.QLabel(f"Buffer {k + 1}:"), k, 0)
+                sl = QtWidgets.QLabel()
+                sl.setStyleSheet(MONO_STYLE)
+                status_labels[k] = sl
+                gl.addWidget(sl, k, 1)
+                btn = QtWidgets.QPushButton("Load file\u2026")
+                load_btns[k] = btn
+                gl.addWidget(btn, k, 2)
+            gl.setColumnStretch(1, 1)
+            lay.addWidget(gb)
+
+            # --- subtraction controls ---
+            gb2 = QtWidgets.QGroupBox("Subtract")
+            f = QtWidgets.QGridLayout(gb2)
+            src_combo = buffer_combo()
+            bg_combo = buffer_combo()
+            dst_combo = buffer_combo()
+            src_combo.setCurrentIndex(1)         # Source     = buffer 2
+            bg_combo.setCurrentIndex(0)          # Background  = buffer 1
+            dst_combo.setCurrentIndex(2)         # Result      = buffer 3
+            f.addWidget(QtWidgets.QLabel("Source"), 0, 0)
+            f.addWidget(src_combo, 0, 1)
+            f.addWidget(QtWidgets.QLabel("Background"), 1, 0)
+            f.addWidget(bg_combo, 1, 1)
+            f.addWidget(QtWidgets.QLabel("Result \u2192"), 2, 0)
+            f.addWidget(dst_combo, 2, 1)
+            f.addWidget(QtWidgets.QLabel(
+                "<i>Result = Source \u2212 Background</i>"), 3, 0, 1, 2)
+            sub_btn = QtWidgets.QPushButton("Subtract")
+            f.addWidget(sub_btn, 4, 0, 1, 2)
+            lay.addWidget(gb2)
+
+            bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+            lay.addWidget(bb)
+
+            def refresh_status():
+                for kk in range(3):
+                    st = self._blink[kk]
+                    if st is None:
+                        status_labels[kk].setText("(empty)")
+                    else:
+                        shp = "\u00d7".join(str(s) for s in st["data"].shape)
+                        status_labels[kk].setText(f"{st['label']}  [{shp}]")
+
+            def load_into(kk):
+                path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                    dlg, f"Load FITS into buffer {kk + 1}", "",
+                    "FITS (*.fits *.fit *.fts *.gz);;All (*)")
+                if path and self._load_file_into_buffer(kk, path):
+                    refresh_status()
+
+            def do_subtract():
+                if self._subtract_buffers(src_combo.currentIndex(),
+                                          bg_combo.currentIndex(),
+                                          dst_combo.currentIndex()):
+                    refresh_status()
+
+            for kk, btn in load_btns.items():
+                btn.clicked.connect(lambda _=False, j=kk: load_into(j))
+            sub_btn.clicked.connect(do_subtract)
+            bb.rejected.connect(dlg.close)
+
+            refresh_status()
+            dlg.show()
+            self._arith_dlg = dlg
 
         def _toggle_autoblink(self, on):
             """Start/stop the auto-blink timer cycling through the filled
@@ -2132,11 +2317,15 @@ def build_gui():
             self._arrows = []
 
         def _erase_all(self):
-            """Remove arrows and switch off compass, scale bar, and contours."""
+            """Remove every drawing on the image: arrows, the vector cut line,
+            spectral overlays, apertures/centroid, the cursor marker, and the
+            compass, scale bar, and contours."""
             self._erase_arrows()
             self._clear_spec_overlays()
             self._clear_apertures()
             self._spec_trace = None
+            self._vec_line.setVisible(False)
+            self._cursor_marker.setVisible(False)
             self._compass["on"] = False
             self._scalebar["on"] = False
             self._contour["on"] = False

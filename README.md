@@ -15,6 +15,7 @@ spectral extraction in one window.
 - Source-to-source separations with position angle and propagated errors
 - Trace-and-extract spectral extraction
 - Box statistics, row/column/vector cuts, blink/RGB, WCS-aware overlays
+- Buffer subtraction (Source − Background) for dithered-frame backgrounds
 
 ## Features
 
@@ -37,7 +38,8 @@ spectral extraction in one window.
   an optional angular (arcsec/arcmin/degree) x-axis.
 - **Annotation & manipulation:** arrows, compass, scale bar, contours;
   WCS-preserving rotations/flips; blink buffers (with a click-through Blink
-  mode) and RGB composites; FITS / spectrum / plot saving.
+  mode), buffer subtraction (Source − Background, for dithered-frame
+  background removal), and RGB composites; FITS / spectrum / plot saving.
 
 ## The analysis tabs
 
@@ -77,6 +79,30 @@ extraction parameters are editable in the tab and re-extract live; the
 result can be saved as 1-D FITS or text.
 
 ![VTA spectrum tab](docs/screenshot_spectrum.png)
+
+## Buffer subtraction (image arithmetic)
+
+For the common infrared workflow of removing the sky/background by
+subtracting two dithered frames taken back to back, **Blink/RGB ▸ Image
+arithmetic (subtract)…** opens a small dialog driven by the three blink
+buffers.
+
+![VTA buffer subtraction](docs/screenshot_buffer_subtraction.png)
+
+Load a FITS file straight into buffer 1, 2, or 3 with its **Load file…**
+button (or use whatever is already stored there from *Blink/RGB ▸ Store
+current → buffer N*). Then choose a **Source** buffer, a **Background**
+buffer, and a **Result** buffer, and press **Subtract**: VTA computes
+`Source − Background` into the result buffer and displays it.
+
+The two inputs must have equal pixel dimensions — no registration,
+reprojection, or scaling is applied, by design, since dithered frames from
+the same detector are already aligned. The difference inherits the Source
+frame's header/WCS (with a `HISTORY` note recording the operation, so it
+saves as valid FITS) and is shown with the default asinh stretch at ZScale
+limits to keep the near-zero residuals visible. With all three buffers
+filled you can blink `1`/`2`/`3` to flip between source, background, and
+difference.
 
 ## Installation
 
@@ -197,7 +223,7 @@ buffers).
 
 ## Status
 
-VTA is at **version 1.00** (released 2026-06-19) and provided as-is. Bug
+VTA is at **version 1.10** (released 2026-06-22) and provided as-is. Bug
 reports and feature requests are welcome via the Issues tab.
 
 ## Tests
